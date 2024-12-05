@@ -1,0 +1,10 @@
+- name: "Reconfigurer GitLab"
+  command: gitlab-ctl reconfigure
+  become: yes
+  tags: reconfigure_gitlab
+
+
+- name: "Redémarrer GitLab"
+  command: gitlab-ctl restart
+  become: yes
+  tags: restart_gitlab

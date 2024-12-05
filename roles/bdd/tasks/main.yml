@@ -1,0 +1,96 @@
+# Installation de Postgresql
+- name: Vérifier si PostgreSQL est déjà installé
+  command: dpkg-query -W -f='${Status}' postgresql
+  register: postgresql_installed
+  failed_when: postgresql_installed.rc not in [0, 1]
+  changed_when: false
+  tags: install_postgresql
+
+- name: Install Postgresql
+  apt: 
+    name: "{{ item.name }}"
+    state: present
+    update_cache: yes
+  with_items: "{{ postgresql | default([]) }}"
+  when: postgresql_installed.rc != 0
+  tags: install_postgresql
+
+
+# Installation de Pyhton3-psycopg2
+- name: Installer psycopg2 pour la connexion à PostgreSQL
+  apt:
+    name: "{{ item.name }}"
+    state: present
+    update_cache: yes
+  loop: "{{ postgres_packages }}"
+  when: ansible_distribution in ["Debian", "Ubuntu"]
+  tags: install_psycopg2
+
+
+# Installation de la locale en_US.UTF-8
+- name: Installer la locale en_US.UTF-8
+  locale_gen:
+    name: "{{ locale_name }}"
+    state: present
+  tags: install_locale
+
+# Configuration de PostgreSQL
+- name: Configurer la connexion à PostgreSQL
+  replace:
+    path: /etc/postgresql/{{ postgres_version }}/main/pg_hba.conf
+    regexp: '127\.0\.0\.1/32'
+    replace: '0.0.0.0/0'
+  become: yes
+  tags: update_pg_hba
+
+- name: Configurer l'authentification "trust" pour PostgreSQL
+  lineinfile:
+    path: /etc/postgresql/{{ postgres_version }}/main/pg_hba.conf
+    regexp: '^local\s+all\s+postgres\s+peer$'
+    line: 'local   all             postgres                                trust'
+  become: yes
+  notify: restart Postgresql
+  tags: config_authentication
+
+# Forcer l'exécution immédiate des handlers
+- name: Forcer l'exécution des handlers après la configuration dans pg_hba.conf
+  meta: flush_handlers
+  tags: flush_handlers
+
+
+# Création du user
+- name: Créer le user 'vagrant'
+  postgresql_user:
+    name: "{{ postgres_user }}"
+    state: present
+  become: yes
+  tags: create_user_vagrant
+
+
+  # Créez les bases de données PostgreSQL
+- name: Créer les bases de données PostgreSQL
+  postgresql_db:
+    name: "{{ item.name }}"
+    owner: "{{ item.owner | default(omit) }}"
+    encoding: "UTF8"
+    lc_collate: "{{ locale_name }}"
+    lc_ctype: "{{ locale_name }}"
+    template: "template0"
+    state: present
+  loop:
+    - { name: "all" }
+    - { name: "dev", owner: "{{ postgres_user }}" }
+    - { name: "stage", owner: "{{ postgres_user }}" }
+    - { name: "prod", owner: "{{ postgres_user }}" }
+  become: yes
+  tags: create_databases
+
+# Donner tous les privilèges de 'vagrant'
+- name: Donner tous les privilèges sur la bdd 'all' à 'vagrant'
+  postgresql_privs:
+    database: "all"
+    role: "{{ postgres_user }}"
+    type: "database"
+    privs: "ALL"
+  become: yes
+  tags: grant_privileges_all

@@ -1,0 +1,22 @@
+# Liste des packages PostgreSQL
+postgresql:
+  - name: postgresql
+
+postgres_packages:
+  - name: python3-psycopg2
+
+# Définition de la locale utilisée pour les bases de données
+locale_name: en_US.UTF-8
+
+# Version de PostgreSQL
+postgres_version: "15"
+
+# Utilisateur pour la base de données
+postgres_user: "vagrant"
+
+# Liste des bases de données à créer
+postgres_databases:
+  - name: all
+  - name: dev
+  - name: stage
+  - name: prod

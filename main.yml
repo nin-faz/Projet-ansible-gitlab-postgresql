@@ -1,0 +1,7 @@
+- name: Installation de GitLab et de la base de données
+  hosts: all
+  become: yes
+  roles:
+    - common
+    - bdd
+    - gitlab

@@ -1,0 +1,171 @@
+# Installation des paquets
+- name: Installer les dépendances nécessaires
+  apt:
+    name: "{{ item.name }}"
+    state: present
+    update_cache: yes
+  loop: "{{ gitlab_dependencies}}"
+  when: ansible_distribution in ["Debian", "Ubuntu"]
+  tags: install_dependencies
+
+
+# Mise en place du repot gitlab
+- name: Vérifier si la clé GPG de GitLab est déjà présente
+  command: apt-key list
+  register: gitlab_key
+  changed_when: false
+  tags: add_key_gitlab
+
+- name: Importer la clé GPG de GitLab
+  apt_key:
+    url: "https://packages.gitlab.com/gitlab/gitlab-ce/gpgkey"
+    state: present
+  become: yes
+  when: "'GitLab' not in gitlab_key.stdout"
+  tags: add_key_gitlab
+
+- name: Ajouter le dépôt GitLab
+  apt_repository:
+    repo: "{{ gitlab_repo_url }}"
+    state: present
+  become: yes
+  when: gitlab_external_url is defined and gitlab_external_url != ""
+  tags: add_repo_gitlab
+
+
+# Installation de GitLab
+
+- name: Vérifier si GitLab CE est déjà installé
+  command: dpkg-query -W -f='${Status}' gitlab-ce
+  register: gitlab_installed
+  ignore_errors: yes
+  tags: install_gitlab
+
+- name: Installer GitLab CE avec une URL externe
+  apt:
+    name: gitlab-ce
+    state: present
+    update_cache: yes
+  become: yes
+  environment:
+    EXTERNAL_URL: "{{ gitlab_external_url }}"
+    LC_CTYPE: "en_US.UTF-8"
+    LC_ALL: "en_US.UTF-8"
+  when: gitlab_installed.rc != 0
+  tags: install_gitlab
+
+
+# Configuration de GitLab dans /etc/gitlab/gitlab.rb
+- name: Configurer GitLab dans /etc/gitlab/gitlab.rb
+  lineinfile:
+    path: /etc/gitlab/gitlab.rb
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  become: yes
+  loop:
+    # Configuration de l'URL externe
+    - { regexp: '^external_url', line: "external_url '{{ gitlab_external_url }}'" }
+    
+    # Configurer le port de la base de données
+    - { regexp: "^nginx\\['listen_port'\\]", line: "nginx['listen_port'] = '{{ gitlab_http_port }}'" }
+    
+    # Répertoires de données
+    - { regexp: "^gitlab_rails\\['gitlab_data_dir'\\]", line: "gitlab_rails['gitlab_data_dir'] = '{{ gitlab_data_dir }}'" }
+    - { regexp: "^gitlab_rails\\['gitlab_log_dir'\\]", line: "gitlab_rails['gitlab_log_dir'] = '{{ gitlab_log_dir }}'" }
+    - { regexp: "^gitlab_rails\\['backup_path'\\]", line: "gitlab_rails['backup_path'] = '{{ gitlab_backup_dir }}'" }
+  tags: configure_gitlab
+
+
+# Configuration du DNS
+- name: Configurer le DNS
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ ip_host }}       {{ gitlab_hostname }}" 
+    state: present
+  become: yes
+  notify:
+    - Reconfigurer GitLab
+    - Redémarrer GitLab
+  when: gitlab_hostname not in lookup('file', '/etc/hosts').splitlines()
+  tags: configure_DNS
+
+# Forcer l'exécution immédiate des handlers
+- name: Forcer l'exécution des handlers après la configuration DNS
+  meta: flush_handlers
+  tags: flush_handlers
+
+# Vérification de l'accès à l'URL de GitLab
+- block:
+    - name: Vérifier l'accès à l'URL de GitLab
+      uri:
+        url: "{{ gitlab_external_url }}"
+        return_content: no
+        status_code: 200
+      register: url_check
+      ignore_errors: yes
+      tags: verify
+
+    - name: Afficher le résultat de la vérification de l'URL
+      debug:
+        msg: "{{ \"GitLab est accessible à l'URL configurée.\" if url_check.status == 200 else \"Erreur : GitLab n'est pas accessible à l'URL configurée.\" }}"
+      when: url_check is defined and url_check.status is defined
+  tags: check_url
+
+### Docker
+
+# Installer Docker et Docker Compose (si non déjà installés)
+- name: Installer les dépendances nécessaires pour Docker
+  apt:
+    name: "{{ item.name }}"
+    state: present
+    update_cache: yes
+  loop: "{{ docker_dependencies}}"
+  tags: install_docker_dependencies
+
+# Créer un répertoire pour le projet Docker Compose
+- name: Créer le répertoire pour les fichiers Docker Compose
+  file:
+    path: /opt/gitlab-docker
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: create_docker_dir
+
+# Copier le fichier docker-compose.yml
+- name: Copier le fichier docker-compose.yml
+  copy:
+    src: docker-compose.yml
+    dest: /opt/gitlab-docker/docker-compose.yml
+  become: yes
+  tags: copy_docker_compose
+
+# Copier le Dockerfile
+- name: Copier le Dockerfile
+  copy:
+    src: Dockerfile
+    dest: /opt/gitlab-docker/Dockerfile
+  become: yes
+  tags: copy_dockerfile
+
+# Construire l'image Docker avec Docker Compose
+- name: Construire et démarrer les conteneurs Docker Compose
+  command: docker-compose up -d --build
+  args:
+    chdir: /opt/gitlab-docker
+  become: yes
+  notify: Reconfigurer GitLab
+  tags: run_docker_compose
+
+# Vérification de l'état des conteneurs
+- name: Vérifier si les conteneurs sont démarrés
+  command: docker ps
+  register: docker_ps_output
+  become: yes
+  tags: check_docker_containers
+
+- name: Afficher les conteneurs en cours d'exécution
+  debug:
+    var: docker_ps_output.stdout
+  become: yes
+  tags: check_docker_containers

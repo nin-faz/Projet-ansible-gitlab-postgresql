@@ -1,0 +1,35 @@
+# Paquets nécessaires pour GitLab
+gitlab_dependencies:
+  - name: vim
+  - name: git
+  - name: wget
+  - name: curl
+  - name: openssh-server
+  - name: ca-certificates
+  - name: perl
+  - name: postfix
+
+# Installation pour GitLab
+gitlab_package: "gitlab-ce"
+
+# Repo pour GitLab
+gitlab_repo_url: "deb https://packages.gitlab.com/gitlab/gitlab-ce/debian/ bookworm main"
+
+# URL externe pour GitLab
+gitlab_external_url: "http://gitlab.vlne.lan"
+
+# Configuration des ports
+gitlab_http_port: 80
+
+# Répertoire pour le stockage des données
+gitlab_data_dir: "/var/opt/gitlab"
+gitlab_log_dir: "/var/log/gitlab"
+gitlab_backup_dir: "/var/opt/gitlab/backups"
+
+# Adresse et informations de configuration de GitLab
+gitlab_hostname: "gitlab.vlne.lan"
+ip_host: 192.168.255.133
+
+docker_dependencies:
+  - name: docker.io
+  - name: docker-compose
